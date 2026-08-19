@@ -1,60 +1,104 @@
-# Invoice Review
+# Patcy — Invoice Intelligence
 
-This is the clean starter for an end-to-end invoice and receipt review application. You will build a workflow for Northstar Facilities B.V. that combines Azure document extraction, deterministic finance rules, SQLite persistence, and a human review interface.
+> Invoice intelligence that catches what shouldn't be there.
 
-> You are on `main`, the learner starter. Active work is visible on `development`; the reviewed finished application is on `solution`.
+Patcy reads supplier **invoices and receipts**, extracts the data, checks it against company
+policy, has an LLM review it, **flags anomalies against vendor history**, and hands a human the
+final decision. It's a hybrid pipeline: a **specialized AI extracts**, **deterministic code
+validates**, an **LLM reasons**, and a **person decides** — the model never overrides the rules.
 
-Tutorial: <https://learn.datalumina.com/docs/invoice-review>
+Built on **Google Cloud** (Document AI + Gemini), **FastAPI**, and **React**.
 
-## What is included
+---
 
-- The client brief and target architecture
-- A fictional 13-document multilingual corpus
-- Safe environment templates
-- Exact dependency pins and lockfiles
-- Backend and frontend project configuration
+## Architecture
 
-Application code is intentionally absent. The tutorial builds the backend and frontend from this starting point.
+```mermaid
+flowchart LR
+    A[Upload PDF / image] --> B[Document AI<br/>Invoice Parser<br/>extract + confidence]
+    B --> C[Classify<br/>invoice vs receipt]
+    C --> D[Deterministic validation<br/>VAT · totals · PO · duplicate]
+    D --> E[Anomaly detection<br/>vs vendor history]
+    E --> F[Gemini review<br/>summary · action · GL account]
+    F --> G[(SQLite<br/>store + audit)]
+    G --> H[Review cockpit<br/>human approves / rejects]
+```
 
-## Prerequisites
+The rules and anomaly flags are **authoritative** — if either fires, the LLM is instructed never
+to recommend "approve." Humans make the final call.
 
-- Python 3.12 or newer
-- uv
-- Node.js 22 or newer
-- pnpm 11
+## Features
 
-## Install
+- **Extraction with confidence** — Google Document AI Invoice Parser returns structured fields
+  (vendor, VAT, totals, dates, PO) with a per-field confidence score.
+- **Invoice vs receipt classification** — receipts skip invoice-only rules (no PO / vendor VAT required).
+- **Deterministic policy validation** — EU VAT checksum (`python-stdnum`), `subtotal + tax = total`
+  (exact `Decimal` math), purchase-order presence, customer-VAT match, and **duplicate detection**.
+- **Fraud / anomaly detection** — flags invoices that don't fit a vendor's history
+  (e.g. *"4.8× higher than this vendor's average"*), using the stored invoice history.
+- **LLM review + GL coding** — Gemini writes a plain-language review, recommends approve / needs-review /
+  reject, and assigns a general-ledger account, via the OpenAI-compatible endpoint.
+- **Review cockpit** — the document rendered beside the extracted data, low-confidence fields flagged
+  for the reviewer, and approve / reject / request-changes controls.
+- **Persistence & audit** — every processed document and decision stored in SQLite.
 
+## Tech stack
+
+| Layer | Tech |
+|-------|------|
+| Extraction | Google **Document AI** (Invoice Parser) |
+| Reasoning | Google **Gemini** (via the OpenAI-compatible API) |
+| Backend | Python 3.12, **FastAPI**, SQLAlchemy + SQLite, Pydantic, python-stdnum, uv |
+| Frontend | **React 19**, Vite, TypeScript, Tailwind CSS v4 |
+
+## Ported from Azure to GCP
+
+This started as an Azure build (Azure Document Intelligence + Azure OpenAI) and was
+**re-architected for Google Cloud**: Document Intelligence → **Document AI**, Azure OpenAI →
+**Gemini** (through the OpenAI-compatible endpoint, so the client code barely changed). Added on top:
+per-field confidence surfacing, vendor-history anomaly detection, and a redesigned review cockpit.
+
+## Getting started
+
+**Prerequisites:** Python 3.12, [uv](https://docs.astral.sh/uv/), Node + pnpm, a GCP project with
+the Document AI API enabled and an **Invoice Parser** processor, a **Gemini API key**, and
+`gcloud auth application-default login`.
+
+### Backend
 ```bash
 cd backend
-uv sync --locked
-
-cd ../frontend
-pnpm install --frozen-lockfile
+cp .env.example .env      # set GEMINI_API_KEY, GCP_PROJECT_ID, DOCAI_LOCATION, DOCAI_PROCESSOR_ID
+uv venv --python 3.12 && source .venv/bin/activate
+uv sync
+gcloud auth application-default login
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-Copy `backend/.env.example` to `backend/.env` and `frontend/.env.example` to `frontend/.env` when the tutorial reaches environment configuration. The backend file contains only Azure provider configuration; the frontend file contains `VITE_API_BASE_URL`. Add real Azure values only when the provider stages require them.
-
-## Verify the starter installation
-
+### Frontend
 ```bash
-cd backend
-uv sync --locked
-
-cd ../frontend
-pnpm install --frozen-lockfile
+cd frontend
+cp .env.example .env      # VITE_API_BASE_URL=http://localhost:8000
+pnpm install
+pnpm dev                  # http://localhost:5173
 ```
 
-## Choose a branch
+## Validation issue codes
 
-- `main`: clone this branch to follow the tutorial from the prepared starting point.
-- `development`: inspect the public working branch and later experiments.
-- `solution`: inspect the reviewed end product.
+| Code | Meaning |
+|------|---------|
+| `vendor_vat_id_required` | Vendor VAT missing |
+| `vendor_vat_id_invalid`  | Vendor VAT fails checksum |
+| `customer_vat_id_mismatch` | Buyer VAT ≠ company VAT |
+| `purchase_order_missing` | No PO on an invoice |
+| `invoice_total_mismatch` | subtotal + tax ≠ total |
+| `duplicate_invoice` | Invoice number already seen |
 
-To switch to the finished application:
+## Notes
 
-```bash
-git switch solution
-```
+Secrets live in per-service `.env` files (git-ignored); `.env.example` files list the variables.
+Never commit real keys — if one is exposed, rotate it immediately.
 
-Start with [the client brief](docs/client-brief.md), then follow the [complete tutorial](https://learn.datalumina.com/docs/invoice-review).
+## Acknowledgements
+
+Built following Datalumina's end-to-end invoice-review project, then re-implemented on Google Cloud
+with added confidence scoring, fraud/anomaly detection, and a redesigned review cockpit.
