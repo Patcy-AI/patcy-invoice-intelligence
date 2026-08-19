@@ -1,19 +1,35 @@
+import re
 from decimal import Decimal, InvalidOperation
 
 from stdnum.eu import vat as eu_vat
 
 from app.services.document_ai_service import ExtractedInvoice
 
-COMPANY_VAT = "NL00449544B01"  # Northstar Facilities B.V. — our own VAT
+COMPANY_VAT = "NL00449544B01"  # Patcy Financial Services B.V. — our own VAT
+
+
+def _money(value) -> Decimal | None:
+    """Parse a money string from Document AI (e.g. '€1,500.00', '1.234,56') into a Decimal."""
+    if value is None:
+        return None
+    text = re.sub(r"[^0-9,.\-]", "", str(value))
+    if not text:
+        return None
+    if "," in text and "." in text:
+        text = text.replace(",", "")            # comma = thousands separator
+    elif "," in text:
+        text = text.replace(",", ".")           # comma = decimal separator
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
 
 
 def _totals_ok(inv: ExtractedInvoice) -> bool:
-    """True if subtotal + tax == total, or if we don't have all three to compare."""
-    try:
-        if inv.subtotal is not None and inv.total_tax is not None and inv.invoice_total is not None:
-            return Decimal(inv.subtotal) + Decimal(inv.total_tax) == Decimal(inv.invoice_total)
-    except InvalidOperation:
-        return False
+    """True if subtotal + tax == total (within a cent), or if we can't compare all three."""
+    st, tx, tot = _money(inv.subtotal), _money(inv.total_tax), _money(inv.invoice_total)
+    if st is not None and tx is not None and tot is not None:
+        return abs((st + tx) - tot) <= Decimal("0.02")
     return True
 
 
