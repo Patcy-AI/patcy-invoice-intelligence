@@ -14,5 +14,8 @@ class Settings(BaseSettings):
     docai_location: str = "eu"
     docai_processor_id: str
 
+    # Database: local sqlite by default; a Postgres URL in production
+    database_url: str = "sqlite:///invoices.db"
+
 
 settings = Settings()

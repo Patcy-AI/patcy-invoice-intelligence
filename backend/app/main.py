@@ -30,11 +30,18 @@ class SavedInvoice(BaseModel):
     invoice_total: str | None
     status: str
     issues: list[str]
+    approved_by: str | None = None
+    released_by: str | None = None
     created_at: datetime
 
 
 class Decision(BaseModel):
-    action: str
+    action: str            # approved | rejected | changes_requested
+    by: str | None = None  # who is making the decision
+
+
+class Release(BaseModel):
+    by: str                # who is releasing the payment (must differ from approver)
 
 
 @app.get("/health")
@@ -46,7 +53,6 @@ def health() -> dict[str, str]:
 async def process(file: UploadFile = File(...)) -> ProcessResponse:
     content = await file.read()
     mime_type = file.content_type or "application/pdf"
-
     invoice = extract_invoice_bytes(content, mime_type)
     issues = validate_invoice(invoice)
 
@@ -60,7 +66,7 @@ async def process(file: UploadFile = File(...)) -> ProcessResponse:
             if already:
                 issues = issues + ["duplicate_invoice"]
 
-        anomalies = check_anomalies(db, invoice)  # history excludes the current one
+        anomalies = check_anomalies(db, invoice)
         review = review_invoice(invoice, issues, anomalies)
 
         record = InvoiceRecord(
@@ -90,10 +96,28 @@ def list_invoices() -> list[SavedInvoice]:
             SavedInvoice(
                 id=r.id, invoice_number=r.invoice_number, vendor_name=r.vendor_name,
                 invoice_total=r.invoice_total, status=r.status,
-                issues=json.loads(r.issues_json), created_at=r.created_at,
+                issues=json.loads(r.issues_json),
+                approved_by=r.approved_by, released_by=r.released_by,
+                created_at=r.created_at,
             )
             for r in rows
         ]
+
+
+@app.get("/invoices/{invoice_id}")
+def get_invoice(invoice_id: int) -> dict:
+    with SessionLocal() as db:
+        r = db.get(InvoiceRecord, invoice_id)
+        if not r:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        return {
+            "id": r.id, "status": r.status,
+            "invoice": json.loads(r.invoice_json),
+            "issues": json.loads(r.issues_json),
+            "anomalies": [],
+            "review": json.loads(r.review_json),
+            "approved_by": r.approved_by, "released_by": r.released_by,
+        }
 
 
 @app.post("/invoices/{invoice_id}/decision")
@@ -102,6 +126,45 @@ def decide(invoice_id: int, decision: Decision) -> dict:
         record = db.get(InvoiceRecord, invoice_id)
         if not record:
             raise HTTPException(status_code=404, detail="Invoice not found")
-        record.status = decision.action
+        if decision.action == "approved":
+            # first approval: does not pay — it queues for a second approver
+            record.status = "awaiting_payment"
+            record.approved_by = (decision.by or "").strip() or None
+        else:
+            record.status = decision.action
         db.commit()
-        return {"id": invoice_id, "status": record.status}
+        return {"id": invoice_id, "status": record.status, "approved_by": record.approved_by}
+
+
+@app.post("/invoices/{invoice_id}/release")
+def release_payment(invoice_id: int, release: Release) -> dict:
+    with SessionLocal() as db:
+        record = db.get(InvoiceRecord, invoice_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        if record.status != "awaiting_payment":
+            raise HTTPException(status_code=400, detail="Invoice is not awaiting payment")
+        releaser = release.by.strip()
+        if not releaser:
+            raise HTTPException(status_code=400, detail="Releaser name is required")
+        if releaser.lower() == (record.approved_by or "").strip().lower():
+            raise HTTPException(
+                status_code=403,
+                detail="Segregation of duties: payment must be released by someone other than the approver.",
+            )
+        record.status = "paid"
+        record.released_by = releaser
+        db.commit()
+        return {
+            "id": invoice_id, "status": "paid",
+            "approved_by": record.approved_by, "released_by": record.released_by,
+        }
+
+
+# --- serve the built frontend (production single-container) ---
+import os  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="spa")
