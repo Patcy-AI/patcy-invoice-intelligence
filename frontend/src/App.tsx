@@ -141,11 +141,14 @@ export default function App() {
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Logo />
-          <label className="flex items-center gap-2 text-xs text-slate-400">
-            Reviewer:
-            <input value={approver} onChange={(e) => setApprover(e.target.value)} placeholder="your name"
-              className="w-32 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-100 outline-none focus:border-amber-500/50" />
-          </label>
+          <div className="flex items-center gap-4">
+            <button onClick={newReview} className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-sm font-medium text-amber-300 hover:border-amber-400 hover:bg-amber-500/10">+ New review</button>
+            <label className="flex items-center gap-2 text-xs text-slate-400">
+              Reviewer:
+              <input value={approver} onChange={(e) => setApprover(e.target.value)} placeholder="your name"
+                className="w-32 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-100 outline-none focus:border-amber-500/50" />
+            </label>
+          </div>
         </div>
       </header>
 
@@ -161,10 +164,6 @@ export default function App() {
               className="rounded-lg bg-amber-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-40">
               {loading ? 'Analyzing…' : 'Analyze'}
             </button>
-            {(result || file) && (
-              <button onClick={newReview}
-                className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-slate-500">+ New review</button>
-            )}
           </div>
           {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
         </section>
@@ -246,10 +245,12 @@ export default function App() {
         )}
 
         {/* Payment queue */}
-        {queue.length > 0 && (
-          <section className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-5">
-            <h2 className="mb-1 text-sm font-medium text-blue-200">Payment queue — awaiting second approval</h2>
-            <p className="mb-3 text-xs text-slate-500">Release requires a reviewer different from the approver (segregation of duties).</p>
+        <section className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-5">
+          <h2 className="mb-1 text-sm font-medium text-blue-200">Payment queue — awaiting second approval</h2>
+          <p className="mb-3 text-xs text-slate-500">When you approve an invoice it lands here. Release requires a reviewer different from the approver (segregation of duties).</p>
+          {queue.length === 0 ? (
+            <p className="py-2 text-sm text-slate-600">No payments awaiting release right now. Approve an invoice and it will appear here for a second reviewer to release.</p>
+          ) : (
             <table className="w-full text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-slate-500">
                 <tr><th className="py-2">#</th><th>Vendor</th><th>Total</th><th>Approved by</th><th></th></tr>
@@ -269,8 +270,8 @@ export default function App() {
                 ))}
               </tbody>
             </table>
-          </section>
-        )}
+          )}
+        </section>
 
         {/* Review history */}
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
