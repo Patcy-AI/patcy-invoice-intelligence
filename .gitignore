@@ -1,0 +1,23 @@
+.DS_Store
+/youtube-board.json
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+backend/data/
+samples/sample-invoice.pdf
+frontend/node_modules/
+frontend/dist/
+
+# --- added for Patcy/Kestrel ---
+.env
+backend/.env
+frontend/.env
+*.db
+backend/invoices.db
+__pycache__/
+.venv/
+node_modules/
+dist/
